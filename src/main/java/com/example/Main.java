@@ -3,8 +3,10 @@ package com.example;
 import com.example.api.ElpriserAPI;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import com.example.api.ElpriserAPI.Prisklass;
 import com.example.api.ElpriserAPI.Elpris;
@@ -13,7 +15,7 @@ public class Main {
     public static void main(String[] args) {
         // Initiera en instans av ElpriserAPI
         ElpriserAPI api = new ElpriserAPI();
-        // Konvertera args arrayen till en lista för åtkomst till listmetoder
+        // Konvertera args array till en lista för åtkomst till listmetoder
         List<String> listOfArgs = Arrays.asList(args);
         // Spara den valda prisklass zonen i Prisklass Enum variabeln pricingZone genom metoden parsePricingZone
         Prisklass pricingZone = parsePricingZone(listOfArgs);
@@ -22,95 +24,112 @@ public class Main {
         // Hämta listan med Elpris records
         List<Elpris> priceList = api.getPriser(date, pricingZone);
 
-        // Utskrift av args för testning
-        for (var arg : args)
-            System.out.println(arg);
-        
+        // Beräknar och skriver ut medelvärde, högsta värde, minsta värde bland priserna med tillhörande timmar
+        printMaxMinMeanPrice(priceList, listOfArgs.contains("--sorted"));
+
+        // Om argumentet --charging är tillagt så beräknas billigaste tidsspannet att ladda en elbil
+        if (listOfArgs.contains("--charging")) {
+            printLowestChargingWindow(listOfArgs, priceList, date);
+        }
+    }
+
+    private static void printLowestChargingWindow(List<String> listOfArgs, List<Elpris> priceList, LocalDate date) {
+        int chargingIndex = listOfArgs.indexOf("--charging");
+        String chargingWindowArg = listOfArgs.get(listOfArgs.indexOf("--charging") + 1);
+        int windowSize = 0;
+
+        switch (chargingWindowArg) {
+            case "2h":
+                windowSize = 2;
+                break;
+            case "4h":
+                windowSize = 4;
+                break;
+            case "8h":
+                windowSize = 8;
+                break;
+            default:
+                System.out.println("Unrecognized charging window value: " +
+                        "--charging needs to be followed by either 2h, 4h or 8h");
+        }
+
+        double windowPriceSum = 0;
+        for (int i = 0; i < windowSize; i++)
+            windowPriceSum += priceList.get(i).sekPerKWh();
+
+        double minPriceSum = windowPriceSum;
+        List<Elpris> lowestWindowList = priceList.subList(0, windowSize);
+
+
+        for (int i = windowSize; i< priceList.toArray().length; i++) {
+            windowPriceSum += priceList.get(i).sekPerKWh() - priceList.get(i-windowSize).sekPerKWh();
+            if (windowPriceSum < minPriceSum) {
+                minPriceSum = windowPriceSum;
+                lowestWindowList = priceList.subList(i-windowSize, i);
+            }
+        }
+
+        System.out.printf("""
+                -------------------------------
+                Påbörja laddning: %s kl %tH:%tM
+                Avsluta laddning: %s kl %tH:%tM
+                Medelpris för fönster: %.2f öre
+                """, date, lowestWindowList.getFirst().timeEnd().toLocalTime(), lowestWindowList.getFirst().timeEnd().toLocalTime(),
+                date, lowestWindowList.getLast().timeEnd().toLocalTime(), lowestWindowList.getFirst().timeEnd().toLocalTime(),
+                minPriceSum / windowSize * 100);
+    }
+
+    private static void printMaxMinMeanPrice(List<Elpris> priceList, boolean sorted) {
         double priceSum = 0.0;
         double minPrice = Double.MAX_VALUE;
-        int[] minHour = new int[2];
+        LocalTime[] minTime = new LocalTime[2];
         double maxPrice = Double.MIN_VALUE;
-        int[] maxHour = new int[2];
-        
-        for (var price : priceList) {
-            // Create a variable for each of the used Elpris record variables for easier reading
-            double hourlyRate = price.sekPerKWh();
-            int startHour = price.timeStart().getHour();
-            int endHour = price.timeEnd().getHour();
+        LocalTime[] maxTime = new LocalTime[2];
 
-            // Store the current price as the lowest if it's lower than minPrice
+        System.out.println("---------------------------");
+        if (sorted) {
+            priceList.sort(Comparator.comparing(Elpris::sekPerKWh));
+            System.out.println("Alla priser sorterade från lägsta till högsta pris:");
+        } else
+            System.out.println("Alla priser i tidsordning: ");
+
+        for (var price : priceList) {
+            // Skapa variabler för timpris, start tid, slut tid i syfte att förbättre läsbarhet
+            double hourlyRate = price.sekPerKWh();
+            LocalTime startTime = price.timeStart().toLocalTime();
+            LocalTime endTime = price.timeEnd().toLocalTime();
+
+            // Lagra det lägsta timpriset med tillhörande start och sluttid om ett nytt lägsta pris hittas
             if (minPrice > hourlyRate){
                 minPrice = hourlyRate;
-                minHour[0] = startHour;
-                minHour[1] = endHour;
+                minTime[0] = startTime;
+                minTime[1] = endTime;
             }
 
-            // Store the current price as the highest if it's lower than minPrice
+            // Lagra det högsta timpriset med tillhörande start och sluttid om ett nytt högsta pris hittas
             if (maxPrice < hourlyRate){
                 maxPrice = hourlyRate;
-                maxHour[0] = startHour;
-                maxHour[1] = endHour;
+                maxTime[0] = startTime;
+                maxTime[1] = endTime;
             }
-
+            // Lägg till det nuvarande priset till den totala prissumman
             priceSum += hourlyRate;
+
             System.out.printf("""
-                    ---------------------------------------------
-                    Tidsperiod: %d-%d   Pris: %f kr
-                    """, startHour, endHour, hourlyRate);
+                %tH-%tH %.2f öre
+                """, startTime, endTime, hourlyRate * 100);
         }
-        double averagePrice = priceSum / priceList.toArray().length;;
-        System.out.printf("""
+
+        //Beräkna ett nytt medelpris och skriv sedan ut medelpris, högsta pris och lägsta pris
+        double averagePrice = priceSum / priceList.toArray().length;
+                System.out.printf("""
+        -------------------------------
         Medelpris: %.2f öre
-        Lägsta pris: 0%d-0%d | %.2f
-        Högsta pris: 0%d-0%d | %.2f""", averagePrice * 100,
-                minHour[0], minHour[1], minPrice * 100,
-                maxHour[0], maxHour[1], maxPrice * 100);
-
-        if (listOfArgs.contains("--charging")) {
-            int chargingIndex = listOfArgs.indexOf("--charging");
-            String chargingWindowArg = listOfArgs.get(listOfArgs.indexOf("--charging") + 1);
-            int windowSize = 0;
-
-            switch (chargingWindowArg) {
-                case "2h":
-                    windowSize = 2;
-                    break;
-                case "4h":
-                    windowSize = 4;
-                    break;
-                case "8h":
-                    windowSize = 8;
-                    break;
-                default:
-                    System.out.println("Unrecognized charging window value: " +
-                            "--charging needs to be followed by either 2h, 4h or 8h");
-            }
-
-            double windowPriceSum = 0;
-            for (int i = 0; i < windowSize; i++)
-                windowPriceSum += priceList.get(i).sekPerKWh();
-
-            double minPriceSum = windowPriceSum;
-            List<Elpris> lowestWindowList = priceList.subList(0, windowSize);
-
-
-            for (int i = windowSize; i<priceList.toArray().length; i++) {
-                windowPriceSum += priceList.get(i).sekPerKWh() - priceList.get(i-windowSize).sekPerKWh();
-                if (windowPriceSum < minPriceSum) {
-                    minPriceSum = windowPriceSum;
-                    lowestWindowList = priceList.subList(i-windowSize, i);
-                }
-            }
-
-            System.out.printf("""
-                    Påbörja laddning: %s kl 0%d:00
-                    Avsluta laddning: %s kl 0%d:00
-                    Medelpris för fönster: %.2f öre
-                    """, date, lowestWindowList.getFirst().timeEnd().getHour(),
-                    date, lowestWindowList.getLast().timeEnd().getHour(),
-                    minPriceSum / windowSize * 100);
-
-        }
+        Lägsta pris: %tH-%tH | %.2f
+        Högsta pris: %tH-%tH | %.2f
+        """, averagePrice * 100,
+                        minTime[0], minTime[1], minPrice * 100,
+                        maxTime[0], maxTime[1], maxPrice * 100);
     }
 
     private static LocalDate parseDate(List<String> listOfArgs) {
