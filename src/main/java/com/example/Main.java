@@ -102,6 +102,7 @@ public class Main {
                 System.out.println("Unrecognized charging window value: " +
                         "--charging needs to be followed by either 2h, 4h or 8h");
         }
+
         ZonedDateTime currentTime  = ZonedDateTime.now();
         if (priceList.getFirst().timeStart().toLocalDate().isBefore(currentTime.toLocalDate()) ||
                 currentTime.getHour() > 13) {
@@ -111,7 +112,6 @@ public class Main {
                     nextDayPrices = convertToHourlyPrices(nextDayPrices);
                 priceList.addAll(nextDayPrices);
             }
-
         }
         double windowPriceSum = 0;
         for (int i = 0; i < windowSize; i++)
@@ -129,7 +129,7 @@ public class Main {
             }
         }
 
-        System.out.printf("""
+        System.out.printf(Locale.forLanguageTag("sv-SE"), """
                 -------------------------------------
                 Påbörja laddning: %s kl %tH:%tM
                 Avsluta laddning: %s kl %tH:%tM
@@ -176,18 +176,18 @@ public class Main {
             // Lägg till det nuvarande priset till den totala prissumman
             priceSum += hourlyRate;
 
-            System.out.printf("""
+            System.out.printf(Locale.forLanguageTag("sv-SE"), """
                 %tH-%tH %.2f öre
                 """, startTime, endTime, hourlyRate * 100);
         }
 
         //Beräkna ett nytt medelpris och skriv sedan ut medelpris, högsta pris och lägsta pris
         double averagePrice = priceSum / priceListCopy.toArray().length;
-                System.out.printf("""
+                System.out.printf(Locale.forLanguageTag("sv-SE"), """
         ------------------------------------
         Medelpris: %.2f öre
-        Lägsta pris: %tH-%tH | %.2f
-        Högsta pris: %tH-%tH | %.2f
+        Lägsta pris: %tH-%tH %.2f
+        Högsta pris: %tH-%tH %.2f
         """, averagePrice * 100,
                         minTime[0], minTime[1], minPrice * 100,
                         maxTime[0], maxTime[1], maxPrice * 100);
