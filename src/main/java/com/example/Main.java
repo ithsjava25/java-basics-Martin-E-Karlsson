@@ -4,6 +4,7 @@ import com.example.api.ElpriserAPI;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 
@@ -28,15 +29,19 @@ public class Main {
 
             // Hämta listan med Elpris records
             List<Elpris> priceList = api.getPriser(date, pricingZone);
-            if (priceList.size() > 24)
-                priceList = convertToHourlyPrices(priceList);
+            if (!priceList.isEmpty()) {
+                if (priceList.size() > 24)
+                    priceList = convertToHourlyPrices(priceList);
 
-            // Beräknar och skriver ut medelvärde, högsta värde, minsta värde bland priserna med tillhörande timmar
-            printMaxMinMeanPrice(priceList, listOfArgs.contains("--sorted"));
+                // Beräknar och skriver ut medelvärde, högsta värde, minsta värde bland priserna med tillhörande timmar
+                printMaxMinMeanPrice(priceList, listOfArgs.contains("--sorted"));
 
-            // Om argumentet --charging är tillagt så beräknas billigaste tidsspannet att ladda en elbil
-            if (listOfArgs.contains("--charging")) {
-                printCheapestChargingWindow(listOfArgs, priceList, date);
+                // Om argumentet --charging är tillagt så beräknas billigaste tidsspannet att ladda en elbil
+                if (listOfArgs.contains("--charging")) {
+                    printCheapestChargingWindow(listOfArgs, priceList, date, api, pricingZone);
+                }
+            } else {
+                System.out.println("No data available for " + date);
             }
         }
 
@@ -77,7 +82,8 @@ public class Main {
                 """);
     }
 
-    private static void printCheapestChargingWindow(List<String> listOfArgs, List<Elpris> priceList, LocalDate date) {
+    private static void printCheapestChargingWindow(List<String> listOfArgs, List<Elpris> priceList, LocalDate date,
+                                                    ElpriserAPI api, Prisklass pricingZone) {
         int chargingIndex = listOfArgs.indexOf("--charging");
         String chargingWindowArg = listOfArgs.get(listOfArgs.indexOf("--charging") + 1);
         int windowSize = 0;
@@ -96,7 +102,17 @@ public class Main {
                 System.out.println("Unrecognized charging window value: " +
                         "--charging needs to be followed by either 2h, 4h or 8h");
         }
+        ZonedDateTime currentTime  = ZonedDateTime.now();
+        if (priceList.getFirst().timeStart().toLocalDate().isBefore(currentTime.toLocalDate()) ||
+                currentTime.getHour() > 13) {
+            List<Elpris> nextDayPrices = api.getPriser(date.plusDays(1), pricingZone);
+            if (!nextDayPrices.isEmpty()) {
+                if (nextDayPrices.size() > 24)
+                    nextDayPrices = convertToHourlyPrices(nextDayPrices);
+                priceList.addAll(nextDayPrices);
+            }
 
+        }
         double windowPriceSum = 0;
         for (int i = 0; i < windowSize; i++)
             windowPriceSum += priceList.get(i).sekPerKWh();
