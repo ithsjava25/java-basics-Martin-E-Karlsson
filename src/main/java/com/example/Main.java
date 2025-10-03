@@ -5,10 +5,7 @@ import com.example.api.ElpriserAPI;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Scanner;
+import java.util.*;
 
 import com.example.api.ElpriserAPI.Prisklass;
 import com.example.api.ElpriserAPI.Elpris;
@@ -22,19 +19,24 @@ public class Main {
         if (!listOfArgs.isEmpty()) {
             // Initiera en instans av ElpriserAPI
             ElpriserAPI api = new ElpriserAPI();
+
             // Spara den valda prisklass zonen i Prisklass Enum variabeln pricingZone genom metoden parsePricingZone
             Prisklass pricingZone = parsePricingZone(listOfArgs);
+
             // Spara ett datum i date variabeln date, genom metoden parseDater som läser av listOfArgs
             LocalDate date = parseDate(listOfArgs);
+
             // Hämta listan med Elpris records
             List<Elpris> priceList = api.getPriser(date, pricingZone);
+            if (priceList.size() > 24)
+                priceList = convertToHourlyPrices(priceList);
 
             // Beräknar och skriver ut medelvärde, högsta värde, minsta värde bland priserna med tillhörande timmar
             printMaxMinMeanPrice(priceList, listOfArgs.contains("--sorted"));
 
             // Om argumentet --charging är tillagt så beräknas billigaste tidsspannet att ladda en elbil
             if (listOfArgs.contains("--charging")) {
-                printLowestChargingWindow(listOfArgs, priceList, date);
+                printCheapestChargingWindow(listOfArgs, priceList, date);
             }
         }
 
@@ -42,8 +44,30 @@ public class Main {
             printHelp();
     }
 
+    private static List<Elpris> convertToHourlyPrices(List<Elpris> priceList) {
+        List<Elpris> hourlyPriceList = new ArrayList<>();
+        int pricesPerHour = 4;
+        for (int i = 0; i < priceList.size()-pricesPerHour; i+=pricesPerHour){
+            double sekPerKWhSum = 0;
+            double eurPerKWhSum = 0;
+            double exrSum = 0;
+            for (int j = 0; j < pricesPerHour; j++) {
+                sekPerKWhSum += priceList.get(i+j).sekPerKWh();
+                eurPerKWhSum += priceList.get(i+j).eurPerKWh();
+                exrSum += priceList.get(i+j).exr();
+            }
+            hourlyPriceList.add(new Elpris(sekPerKWhSum / pricesPerHour,
+                    eurPerKWhSum / pricesPerHour,
+                    exrSum / pricesPerHour,
+                    priceList.get(i).timeStart(),
+                    priceList.get(i+4).timeEnd()));
+        }
+        return hourlyPriceList;
+    }
+
     private static void printHelp() {
         System.out.print("""
+                -------------------------------------
                 Elpriser is a command line interface program which can fetch electrical pricing usage data through these commands:
                 --zone SE1|SE2|SE3|SE4 (required)
                 --date YYYY-MM-DD (optional, defaults to current date)
@@ -53,7 +77,7 @@ public class Main {
                 """);
     }
 
-    private static void printLowestChargingWindow(List<String> listOfArgs, List<Elpris> priceList, LocalDate date) {
+    private static void printCheapestChargingWindow(List<String> listOfArgs, List<Elpris> priceList, LocalDate date) {
         int chargingIndex = listOfArgs.indexOf("--charging");
         String chargingWindowArg = listOfArgs.get(listOfArgs.indexOf("--charging") + 1);
         int windowSize = 0;
@@ -90,7 +114,7 @@ public class Main {
         }
 
         System.out.printf("""
-                -------------------------------
+                -------------------------------------
                 Påbörja laddning: %s kl %tH:%tM
                 Avsluta laddning: %s kl %tH:%tM
                 Medelpris för fönster: %.2f öre
@@ -105,15 +129,16 @@ public class Main {
         LocalTime[] minTime = new LocalTime[2];
         double maxPrice = Double.MIN_VALUE;
         LocalTime[] maxTime = new LocalTime[2];
+        List<Elpris> priceListCopy = new ArrayList<>(priceList);
 
-        System.out.println("---------------------------");
+        System.out.println("-------------------------------------");
         if (sorted) {
-            priceList.sort(Comparator.comparing(Elpris::sekPerKWh));
+            priceListCopy.sort(Comparator.comparing(Elpris::sekPerKWh));
             System.out.println("Alla priser sorterade från lägsta till högsta pris:");
         } else
             System.out.println("Alla priser i tidsordning: ");
 
-        for (var price : priceList) {
+        for (var price : priceListCopy) {
             // Skapa variabler för timpris, start tid, slut tid i syfte att förbättre läsbarhet
             double hourlyRate = price.sekPerKWh();
             LocalTime startTime = price.timeStart().toLocalTime();
@@ -141,9 +166,9 @@ public class Main {
         }
 
         //Beräkna ett nytt medelpris och skriv sedan ut medelpris, högsta pris och lägsta pris
-        double averagePrice = priceSum / priceList.toArray().length;
+        double averagePrice = priceSum / priceListCopy.toArray().length;
                 System.out.printf("""
-        -------------------------------
+        ------------------------------------
         Medelpris: %.2f öre
         Lägsta pris: %tH-%tH | %.2f
         Högsta pris: %tH-%tH | %.2f
