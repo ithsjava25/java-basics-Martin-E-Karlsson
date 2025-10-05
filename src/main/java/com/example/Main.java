@@ -10,13 +10,13 @@ import java.util.*;
 
 import com.example.api.ElpriserAPI.Prisklass;
 import com.example.api.ElpriserAPI.Elpris;
-import com.sun.source.tree.CaseTree;
 
 public class Main {
     public static void main(String[] args) {
         // Konvertera args array till en lista för åtkomst till listmetoder
         List<String> listOfArgs = Arrays.asList(args);
 
+        // Om det inte finns några kommandon i args[] kommer endast --help informationen att visas
         if (!listOfArgs.isEmpty()) {
             // Initiera en instans av ElpriserAPI
             ElpriserAPI api = new ElpriserAPI();
@@ -30,6 +30,11 @@ public class Main {
             // Hämta listan med Elpris records
             List<Elpris> priceList = api.getPriser(date, pricingZone);
             if (!priceList.isEmpty()) {
+
+                /* Om det är fler än 24 (troligtvis 96) Elpris element i listan konverteras var fjärde Elpris record
+                * till medelvärdet för timman. En förbättring av funktionen skulle stega igenom listan och plocka ut
+                * värden baserat på timeStart, så att den kan hantera varierande värden per timma. Men det känns out of
+                * scope i nuläget.*/
                 if (priceList.size() > 24)
                     priceList = convertToHourlyPrices(priceList);
 
@@ -45,10 +50,16 @@ public class Main {
             }
         }
 
+        // Visar --help information om args[] är tom eller --help lagts till
         if (listOfArgs.isEmpty() || listOfArgs.contains("--help"))
             printHelp();
     }
 
+    /**
+     * Tar en lista med priser i kvartar och konverterar dem till medelpriset för timman.
+     * @param priceList Lista med Elpris records uppdelade i kvartar.
+     * @return Lista med Elpris records summerade till medelvärdet per timma.
+     */
     private static List<Elpris> convertToHourlyPrices(List<Elpris> priceList) {
         List<Elpris> hourlyPriceList = new ArrayList<>();
         int pricesPerHour = 4;
@@ -70,10 +81,13 @@ public class Main {
         return hourlyPriceList;
     }
 
+    /**
+     * Skriver ut --help avsnittet för at se tillgängliga kommandon.
+     */
     private static void printHelp() {
         System.out.print("""
                 -------------------------------------
-                Elpriser is a command line interface program which can fetch electrical pricing usage data through these commands:
+                Elpriser is a command line interface program which fetches electrical pricing usage data through these commands:
                 --zone SE1|SE2|SE3|SE4 (required)
                 --date YYYY-MM-DD (optional, defaults to current date)
                 --sorted (optional, to display prices in descending order,defaults to display prices in chronological order)
@@ -82,9 +96,16 @@ public class Main {
                 """);
     }
 
+    /**
+     * Beräknar och skriver ut det billigaste tidsspannet att ladda batterier.
+     * @param listOfArgs En array med argument och tillhörande värden från command line anropet.
+     * @param priceList Listan med Elpris records givna av ElpriserAPI funktionen getPriser.
+     * @param date Ett datum i form av ett LocalDate objekt som funktionen baserar beräkningen på.
+     * @param api En instans av ElPriserAPI som används för att anropa getPriser för den kommande dagen.
+     * @param pricingZone En enum som beskriver vilken elnätsprisklass som används för beräkningen.
+     */
     private static void printCheapestChargingWindow(List<String> listOfArgs, List<Elpris> priceList, LocalDate date,
                                                     ElpriserAPI api, Prisklass pricingZone) {
-        int chargingIndex = listOfArgs.indexOf("--charging");
         String chargingWindowArg = listOfArgs.get(listOfArgs.indexOf("--charging") + 1);
         int windowSize = 0;
 
@@ -139,6 +160,11 @@ public class Main {
                 minPriceSum / windowSize * 100);
     }
 
+    /**
+     * Beräknar högsta-, lägsta- och medelpriset i den givna listan och skriver ut dem samt alla priser.
+     * @param priceList Listan med Elpris records givna av ElpriserAPI funktionen getPriser.
+     * @param sorted Om true sorteras alla priser i från lägsta till högsta istället för kronologiskt.
+     */
     private static void printMaxMinMeanPrice(List<Elpris> priceList, boolean sorted) {
         double priceSum = 0.0;
         double minPrice = Double.MAX_VALUE;
@@ -155,7 +181,7 @@ public class Main {
             System.out.println("Alla priser i tidsordning: ");
 
         for (var price : priceListCopy) {
-            // Skapa variabler för timpris, start tid, slut tid i syfte att förbättre läsbarhet
+            // Skapa variabler för timpris, start tid, slut tid i syfte att förbättra läsbarhet
             double hourlyRate = price.sekPerKWh();
             LocalTime startTime = price.timeStart().toLocalTime();
             LocalTime endTime = price.timeEnd().toLocalTime();
@@ -193,6 +219,12 @@ public class Main {
                         maxTime[0], maxTime[1], maxPrice * 100);
     }
 
+    /**
+     * Läser in om ett korrekt beskrivet datum finns givet bland argumenten, om --date inte angivits returneras dagens
+     * datum.
+     * @param listOfArgs En array med argument och tillhörande värden från command line anropet.
+     * @return Ett LocalDate objekt.
+     */
     private static LocalDate parseDate(List<String> listOfArgs) {
         if (listOfArgs.contains("--date")) {
             String dateString = listOfArgs.get(listOfArgs.indexOf("--date") + 1);
@@ -208,6 +240,12 @@ public class Main {
         return LocalDate.now();
     }
 
+    /**
+     * Läser av argumenten givna vid kommando raden efter en prisklass givet av --zone kommandot, om ingen korrekt
+     * angiven prisklass finns anropas pricingZoneMenu begär en prisklass via konsol inmatning.
+     * @param listOfArgs En array med argument och tillhörande värden från command line anropet.
+     * @return Ett Prisklass Enum värde.
+     */
     private static Prisklass parsePricingZone(List<String> listOfArgs) {
         if (listOfArgs.contains("--zone") && !listOfArgs.getLast().equals("--zone")){
             String zone = listOfArgs.get(listOfArgs.indexOf("--zone") + 1);
@@ -237,6 +275,10 @@ public class Main {
         //return pricingZoneMenu();
     }
 
+    /**
+     * Ber användaren ange en giltig prisklass via konsol inmatning.
+     * @return Ett Prisklass Enum värde.
+     */
     private static Prisklass pricingZoneMenu() {
         Scanner sc = new Scanner(System.in);
         return switch (sc.nextLine()) {
